@@ -191,7 +191,7 @@ label.f input:focus,label.f select:focus,label.f textarea:focus{outline:3px soli
       <div><h1>Plano de Saúde de Joelma</h1><small id="sub">Carregando…</small></div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-    <span class="sync" id="sync" title="Situação da sincronização"><i></i><span>Conectando…</span></span>
+    <span class="sync hidden" id="sync" title="Situação da conexão"><i></i><span></span></span>
     <div class="month">
       <button id="mPrev" aria-label="Mês anterior">‹</button>
       <span id="mLabel"></span>
@@ -1079,11 +1079,11 @@ function marcarSync(meta){
 }
 function pintarSync(){
   const el=$("#sync"); if(!el) return; const t=el.querySelector("span");
-  if(!navigator.onLine){ el.className="sync off"; t.textContent="Sem internet · salvando no aparelho"; return; }
-  if(pendentesSync){ el.className="sync"; t.textContent="Enviando alterações…"; return; }
-  if(ultimaSync){ el.className="sync on"; t.textContent="Sincronizado · "+ultimaSync.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}); return; }
-  el.className="sync"; t.textContent="Conectando…";
+  if(!navigator.onLine){ el.className="sync off"; t.textContent="Sem internet"; el.classList.remove("hidden"); return; }
+  if(pendentesSync){ el.className="sync"; t.textContent="Salvando…"; el.classList.remove("hidden"); return; }
+  el.className="sync hidden"; // tudo certo: indicador some e o app atualiza sozinho
 }
+
 window.addEventListener("online",pintarSync); window.addEventListener("offline",pintarSync);
 // recalcula as situações (dias para o vencimento) a cada minuto e quando o app volta a ficar visível
 setInterval(()=>{ render(); pintarSync(); },60000);
@@ -1138,12 +1138,16 @@ document.addEventListener("click",async e=>{
     firebase.initializeApp(firebaseConfig);
     await firebase.auth().signInAnonymously();
     db = firebase.firestore();
-    try{ await db.enablePersistence({synchronizeTabs:true}); }catch(x){ /* outro navegador/aba sem suporte: segue online */ }
+    // redes de empresa/proxy costumam bloquear o canal contínuo; o long polling funciona nelas
+    try{ db.settings({experimentalAutoDetectLongPolling:true, merge:true}); }catch(x){}
   }catch(e){
     status("Não foi possível conectar ao Firebase ("+(e&&e.code||e&&e.message||e)+"). Confira a configuração e se o login Anônimo está ativado.",true);
     $("#sub").textContent="Sem conexão com o banco de dados"; return;
   }
-  let pend=5, timer=setTimeout(()=>status("Os dados estão demorando para carregar. Podem estar desatualizados.",true),10000);
+  let pend=5, timer=setTimeout(async()=>{
+    try{ await db.doc("config/plano").get({source:"server"}); ultimaSync=new Date(); pintarSync(); status(""); }
+    catch(x){ status("Não foi possível conectar ao banco de dados. Verifique a internet e recarregue a página.",true); }
+  },8000);
   const done=snap=>{ if(snap.metadata&&snap.metadata.fromCache) return; if(--pend<=0){ clearTimeout(timer); if(!$("#status").classList.contains("err")) status(""); } };
   const fail=e=>{ clearTimeout(timer); status("Erro ao carregar dados ("+(e&&e.code||"desconhecido")+").",true); };
   const once=()=>{ let d=false; return s=>{ if(!d && !(s.metadata&&s.metadata.fromCache)){ d=true; done(s);} }; };
