@@ -142,6 +142,10 @@ label.f input:focus,label.f select:focus,label.f textarea:focus{outline:2px soli
       <div class="card kpi"><div class="lbl">Arrecadado</div><div class="val" id="kPago">—</div><div class="sub" id="kPagoSub"></div><div class="bar"><i id="kBar" style="width:0"></i></div></div>
       <div class="card kpi"><div class="lbl">Falta receber</div><div class="val" id="kFalta">—</div><div class="sub" id="kFaltaSub"></div></div>
     </div>
+    <div class="card hidden" id="dExtrasCard" style="margin-top:14px">
+      <div class="sec-h"><h2>Cobranças extras</h2><button class="btn sm" data-go="pagamentos">Ver detalhes</button></div>
+      <div class="list" id="dExtras"></div>
+    </div>
     <div class="grid two">
       <div class="card">
         <div class="sec-h"><h2>Quem pagou este mês</h2><button class="btn sm" data-go="pagamentos">Gerenciar</button></div>
@@ -169,6 +173,7 @@ label.f input:focus,label.f select:focus,label.f textarea:focus{outline:2px soli
       <div id="pPix"></div>
       <div class="list" id="pList"></div>
     </div>
+    <div id="pExtras"></div>
     <div class="card" style="margin-top:14px">
       <div class="sec-h">
         <h2>Histórico de pagamentos</h2>
@@ -258,6 +263,17 @@ label.f input:focus,label.f select:focus,label.f textarea:focus{outline:2px soli
       <div class="card" style="margin-top:14px">
         <div class="sec-h"><h2>Pagamentos de <span id="aMes"></span></h2><span style="color:var(--muted);font-size:13px">use ‹ › no topo para trocar o mês</span></div>
         <div class="list" id="aPags"></div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <div class="sec-h"><h2>Cobranças extras</h2><span style="color:var(--muted);font-size:13px">adesão, taxas, coparticipação…</span></div>
+        <form id="fExtra" class="fg" style="grid-template-columns:2fr 1fr 1fr auto;align-items:end;margin-bottom:12px">
+          <label class="f">Descrição<input name="descricao" required placeholder="Ex.: Taxa de adesão"></label>
+          <label class="f">Valor total (R$)<input name="valor" type="number" step="0.01" min="0.01" required></label>
+          <label class="f">Data<input name="data" type="date" required></label>
+          <button class="btn pri" type="submit">Criar cobrança</button>
+        </form>
+        <div style="color:var(--muted);font-size:13px;margin:-4px 0 10px">O valor é dividido igualmente entre os membros ativos no momento da criação.</div>
+        <div id="aExtras"></div>
       </div>
       <div class="card" style="margin-top:14px">
         <div class="sec-h"><h2>Consultas</h2></div>
@@ -364,7 +380,7 @@ const iniciais = n => String(n||"?").trim().split(/\s+/).filter(Boolean).slice(0
 const toast = msg => { const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("on"),2600); };
 const status = (msg, err) => { const s=$("#status"); if(!msg){s.classList.add("hidden");return;} s.textContent=msg; s.className="note"+(err?" err":""); };
 
-const S = { comps:{}, admin:false, adminCfg:{}, mes: mesKey(new Date()), config:{valorMensal:0,diaVenc:10}, membros:[], pags:{}, consultas:[], meses:{}, filtro:"todas", ready:false };
+const S = { extras:[], pagx:{}, comps:{}, admin:false, adminCfg:{}, mes: mesKey(new Date()), config:{valorMensal:0,diaVenc:10}, membros:[], pags:{}, consultas:[], meses:{}, filtro:"todas", ready:false };
 let db=null, assets=null, canWrite=true;
 
 /* ---------- cálculos ---------- */
@@ -390,7 +406,7 @@ function resumo(k){
 function render(){
   $("#mLabel").textContent = mesNome(S.mes);
   $("#sub").textContent = S.config.operadora ? `${S.config.operadora} · vence dia ${S.config.diaVenc||"—"}` : "Acompanhamento de pagamentos e consultas";
-  renderPainel(); renderPagamentos(); renderHistorico(); renderMembros(); renderConsultas(); renderAdmin();
+  renderPainel(); renderPagamentos(); renderExtras(); renderHistorico(); renderMembros(); renderConsultas(); renderAdmin();
 }
 
 function renderPainel(){
@@ -436,19 +452,57 @@ function comprovanteHtml(p){
   return `<a href="#" data-comp="${esc(id)}" title="Ver comprovante" style="display:flex;align-items:center;gap:6px;text-decoration:none">${img&&url?`<img class="thumb" src="${esc(url)}" alt="Comprovante">`:`<span style="font-size:26px">${img?"🖼️":"📄"}</span>`}<span class="filelink">${url===null?"Comprovante indisponível":"Ver comprovante"}</span></a>`;
 }
 let hSel=null;
+/* cobranças extras */
+const participantesDe = x => membrosOrd().filter(m=>(x.participantes||[]).includes(m.id));
+const cotaExtra = x => Math.round((Number(x.valorTotal)||0)/Math.max(1,(x.participantes||[]).length)*100)/100;
+const pagExtra = (xid,mid) => S.pagx[xid+"_"+mid];
+function resumoExtra(x){ const ps=participantesDe(x); let pago=0,n=0; ps.forEach(m=>{ const p=pagExtra(x.id,m.id); if(p&&p.pago){ pago+=Number(p.valor)||0; n++; } }); return {pago,n,total:ps.length}; }
+function situacaoExtra(x,mid){ const p=pagExtra(x.id,mid); if(p&&p.pago) return {cls:"b-ok",txt:"Pago"}; if(p&&p.recusado) return {cls:"b-bad",txt:"Recusado"}; return {cls:"b-warn",txt:"Pendente"}; }
+const extrasOrd = () => [...S.extras].sort((a,b)=>String(b.data||"").localeCompare(String(a.data||"")));
+function extraRows(x,admin){
+  const cota=cotaExtra(x);
+  return participantesDe(x).map(m=>{
+    const p=pagExtra(x.id,m.id), s=situacaoExtra(x,m.id), xa=`data-x="${esc(x.id)}"`;
+    const info = p&&p.pago ? `${brl(p.valor)} em ${fmtData(p.data)}${p.obs?" · "+esc(p.obs):""}` : p&&p.recusado ? `<span style="color:var(--bad)">❌ Recusado: ${esc(p.motivoRecusa||"")}</span>` : `Parte: ${brl(cota)}`;
+    let acts;
+    if(admin) acts=`<button class="btn sm" data-pagadm="${esc(m.id)}" ${xa}>${p&&p.pago?"Editar":"Registrar"}</button>${p&&p.pago?`<button class="btn sm dang" data-recusar="${esc(m.id)}" ${xa}>Recusar</button>`:""}${p&&p.recusado?`<button class="btn sm" data-aprovar="${esc(m.id)}" ${xa}>Aprovar</button>`:""}${p?`<button class="btn sm dang" data-despagar="${esc(m.id)}" ${xa}>Excluir</button>`:""}`;
+    else acts = p&&p.pago ? (p.comprovanteId?`<span style="font-size:12px;color:var(--ok);font-weight:600">✔ Enviado</span>`:`<button class="btn sm" data-pag="${esc(m.id)}" ${xa}>Enviar comprovante</button>`)
+      : `<button class="btn sm pri" data-pag="${esc(m.id)}" ${xa}>${p&&p.recusado?"Reenviar pagamento":"Enviar comprovante"}</button>`;
+    return `<div class="row"><div class="av">${esc(iniciais(m.nome))}</div><div class="main"><b>${esc(m.nome)}</b><span>${info}</span></div>${comprovanteHtml(p)}<span class="badge ${s.cls}">${s.txt}</span><div class="actions">${acts}</div></div>`;
+  }).join("");
+}
+function extraCard(x,admin){
+  const r=resumoExtra(x), cota=cotaExtra(x);
+  return `<div class="card" style="margin-top:14px"><div class="sec-h"><div><h2>${esc(x.descricao)}</h2>
+    <div style="color:var(--muted);font-size:13px;margin-top:2px">${fmtData(x.data)} · total ${brl(x.valorTotal)} ÷ ${r.total} = <b>${brl(cota)}</b> por pessoa · ${r.n}/${r.total} pagos</div></div>
+    ${admin?`<button class="btn sm dang" data-delextra="${esc(x.id)}">Excluir cobrança</button>`:""}</div>
+    <div class="bar" style="margin:0 0 6px"><i style="width:${r.total?r.n/r.total*100:0}%"></i></div>
+    <div class="list">${extraRows(x,admin)||`<div class="empty">Nenhum participante.</div>`}</div></div>`;
+}
+function renderExtras(){
+  const xs=extrasOrd();
+  $("#pExtras").innerHTML = xs.map(x=>extraCard(x,false)).join("");
+  $("#dExtrasCard").classList.toggle("hidden",!xs.length);
+  $("#dExtras").innerHTML = xs.map(x=>{ const r=resumoExtra(x);
+    return `<div class="row"><div class="main"><b>${esc(x.descricao)}</b><span>${brl(r.pago)} de ${brl(x.valorTotal)} · ${r.n}/${r.total} pagos</span><div class="bar" style="margin-top:6px"><i style="width:${r.total?r.n/r.total*100:0}%"></i></div></div><span class="badge ${r.n===r.total&&r.total?"b-ok":"b-warn"}">${r.n===r.total&&r.total?"Quitado":"Em aberto"}</span></div>`; }).join("");
+  if(S.admin) $("#aExtras").innerHTML = xs.length ? xs.map(x=>extraCard(x,true)).join("") : `<div class="empty">Nenhuma cobrança extra criada.</div>`;
+}
 function renderHistorico(){
   const sel=$("#hMembro"), ms=membrosOrd();
   if(!ms.length){ sel.innerHTML=""; $("#hResumo").textContent=""; $("#hList").innerHTML=`<div class="empty">Nenhum membro cadastrado.</div>`; return; }
   if(!hSel || !ms.some(m=>m.id===hSel)) hSel=ms[0].id;
   sel.innerHTML=ms.map(m=>`<option value="${esc(m.id)}"${m.id===hSel?" selected":""}>${esc(m.nome)}</option>`).join("");
-  const regs=Object.values(S.pags).filter(p=>p.membroId===hSel).sort((a,b)=>String(b.mes).localeCompare(String(a.mes)));
+  const regsM=Object.values(S.pags).filter(p=>p.membroId===hSel).map(p=>Object.assign({},p,{_ord:p.mes+"-99"}));
+  const regsX=Object.values(S.pagx).filter(p=>p.membroId===hSel).map(p=>{ const x=S.extras.find(e=>e.id===p.extraId); return x?Object.assign({},p,{_extra:x,_ord:String(x.data||"")}):null; }).filter(Boolean);
+  const regs=[...regsM,...regsX].sort((a,b)=>String(b._ord).localeCompare(String(a._ord)));
   const pagos=regs.filter(p=>p.pago), total=pagos.reduce((s,p)=>s+(Number(p.valor)||0),0);
   $("#hResumo").textContent = `${pagos.length} ${pagos.length===1?"mês pago":"meses pagos"} · total ${brl(total)}`;
   $("#hList").innerHTML = regs.length ? regs.map(p=>{
     const st = p.pago?["b-ok","Pago"]:p.recusado?["b-bad","Recusado"]:["b-warn","Pendente"];
     const info = p.pago ? `${brl(p.valor)} pago em ${fmtData(p.data)}${p.obs?" · "+esc(p.obs):""}` : p.recusado ? `Recusado: ${esc(p.motivoRecusa||"")}` : "";
-    return `<div class="row"><div class="datebox" style="width:64px"><b style="font-size:14px;text-transform:capitalize">${esc(mesCurto(p.mes))}</b><small>${esc(String(p.mes).slice(0,4))}</small></div>
-      <div class="main"><b style="text-transform:capitalize">${esc(mesNome(p.mes))}</b><span>${info}</span></div>${comprovanteHtml(p)}<span class="badge ${st[0]}">${st[1]}</span></div>`;
+    const ref = p._extra ? String(p._extra.data||"").slice(0,7) : p.mes;
+    return `<div class="row"><div class="datebox" style="width:64px"><b style="font-size:14px;text-transform:capitalize">${esc(mesCurto(ref))}</b><small>${esc(String(ref).slice(0,4))}</small></div>
+      <div class="main"><b>${p._extra?"➕ "+esc(p._extra.descricao):`<span style="text-transform:capitalize">${esc(mesNome(p.mes))}</span>`}</b><span>${info}</span></div>${comprovanteHtml(p)}<span class="badge ${st[0]}">${st[1]}</span></div>`;
   }).join("") : `<div class="empty">Nenhum pagamento registrado para este membro ainda.</div>`;
 }
 $("#hMembro").addEventListener("change",e=>{ hSel=e.target.value; renderHistorico(); });
@@ -638,24 +692,32 @@ $("#fMembro").onsubmit=async e=>{
 /* pagamentos */
 let pagMembro=null;
 let pagViaAdmin=false;
+let pagX=null; // id da cobrança extra (null = mensalidade)
+const ctxExtra = () => pagX ? S.extras.find(e=>e.id===pagX) : null;
+const ctxPath = id => pagX ? "pagextras/"+pagX+"_"+id : "pagamentos/"+S.mes+"_"+id;
+const ctxPag = id => pagX ? pagExtra(pagX,id) : pagDe(S.mes,id);
+const ctxCota = () => { const x=ctxExtra(); return x ? cotaExtra(x) : cotaMes(S.mes); };
+const ctxNome = () => { const x=ctxExtra(); return x ? x.descricao : mesNome(S.mes); };
+const ctxMembros = () => { const x=ctxExtra(); return x ? participantesDe(x) : ativos(); };
+const ctxJa = () => pagX ? "O comprovante desta cobrança já foi enviado." : "O comprovante deste mês já foi enviado. Só é permitido um por mês.";
 function abrirPag(id,viaAdmin){
-  const ms=ativos();
+  const ms=ctxMembros();
   if(!ms.length){ toast("Nenhum membro cadastrado ainda."); return; }
   pagViaAdmin=!!(viaAdmin&&S.admin);
   const f=$("#fPag"); f.reset();
   $("#pgMembro").innerHTML = (id?"":`<option value="" disabled selected>Escolha seu nome…</option>`) +
-    ms.map(m=>{ const p=pagDe(S.mes,m.id), ja=p&&p.pago&&p.comprovanteId;
+    ms.map(m=>{ const p=ctxPag(m.id), ja=p&&p.pago&&p.comprovanteId;
       return `<option value="${esc(m.id)}"${m.id===id?" selected":""}>${esc(m.nome)}${ja?" — ✔ já enviado":""}</option>`; }).join("");
   $("#pgMembro").disabled = pagViaAdmin;
-  $("#pgPix").innerHTML = pixCard(cotaMes(S.mes));
+  $("#pgPix").innerHTML = pixCard(ctxCota());
   preencherPag(id||null);
   open("#ovPag");
 }
 function preencherPag(id){
   const f=$("#fPag"); pagMembro=id;
-  const m=id?S.membros.find(x=>x.id===id):null, p=id?pagDe(S.mes,id):null;
-  $("#pgTitle").textContent = m ? `Pagamento de ${m.nome.split(" ")[0]} — ${mesNome(S.mes)}` : `Enviar comprovante — ${mesNome(S.mes)}`;
-  f.valor.value = p&&(p.pago||p.recusado) ? p.valor : cotaMes(S.mes).toFixed(2);
+  const m=id?S.membros.find(x=>x.id===id):null, p=id?ctxPag(id):null;
+  $("#pgTitle").textContent = m ? `Pagamento de ${m.nome.split(" ")[0]} — ${ctxNome()}` : `Enviar comprovante — ${ctxNome()}`;
+  f.valor.value = p&&(p.pago||p.recusado) ? p.valor : ctxCota().toFixed(2);
   f.data.value = p&&p.data ? p.data : hojeISO();
   f.obs.value = p&&p.obs || ""; f.senha.value="";
   f.arquivo.disabled=!assets;
@@ -665,22 +727,22 @@ function preencherPag(id){
   const save=$("#pgSave"); save.disabled=!m;
   $("#pgUpNote").textContent = assets ? "Anexe a foto (é reduzida automaticamente) ou um PDF de até 700 KB." : "O envio de arquivos não está disponível para o seu acesso.";
   if(!m) return;
-  if(!pagViaAdmin && p && p.pago && p.comprovanteId){ $("#pgErro").textContent="O comprovante deste mês já foi enviado. Só é permitido um por mês."; save.disabled=true; return; }
+  if(!pagViaAdmin && p && p.pago && p.comprovanteId){ $("#pgErro").textContent=ctxJa(); save.disabled=true; return; }
   if(!m.senhaHash && !pagViaAdmin){ $("#pgErro").textContent="Este membro ainda não tem senha. Peça ao admin para criar uma (Admin → Membros → Editar)."; save.disabled=true; $("#pgSenhaBox").classList.add("hidden"); f.senha.required=false; }
 }
 $("#pgMembro").addEventListener("change",e=>preencherPag(e.target.value));
-$("#btnEnviarComp").onclick=()=>abrirPag(null,false);
+$("#btnEnviarComp").onclick=()=>{ pagX=null; abrirPag(null,false); };
 $("#fPag").onsubmit=async e=>{
   e.preventDefault(); if(!requireDb()) return;
-  const f=e.target, btn=$("#pgSave"), id=pagMembro, ant=pagDe(S.mes,id)||{};
+  const f=e.target, btn=$("#pgSave"), id=pagMembro, ant=ctxPag(id)||{}, path=ctxPath(id);
   if(!id){ $("#pgErro").textContent="Escolha o seu nome."; return; }
-  const data={mes:S.mes, membroId:id, pago:true, valor:Number(f.valor.value)||0, data:f.data.value, obs:f.obs.value.trim(), registradoEm:new Date().toISOString(),
+  const data={...(pagX?{extraId:pagX}:{mes:S.mes}), membroId:id, pago:true, valor:Number(f.valor.value)||0, data:f.data.value, obs:f.obs.value.trim(), registradoEm:new Date().toISOString(),
     comprovanteId:ant.comprovanteId||null, comprovanteUrl:ant.comprovanteUrl||null, comprovanteTipo:ant.comprovanteTipo||null, comprovanteNome:ant.comprovanteNome||null};
   const file=f.arquivo.files[0];
   const mm=S.membros.find(x=>x.id===id);
   if(!pagViaAdmin){
-    try{ const atual=await db.doc("pagamentos/"+S.mes+"_"+id).get(); const a=atual.exists?atual.data():null;
-      if(a && a.pago && a.comprovanteId){ $("#pgErro").textContent="O comprovante deste mês já foi enviado. Só é permitido um por mês."; return; } }catch(x){}
+    try{ const atual=await db.doc(path).get(); const a=atual.exists?atual.data():null;
+      if(a && a.pago && a.comprovanteId){ $("#pgErro").textContent=ctxJa(); return; } }catch(x){}
     if(!file){ $("#pgErro").textContent="Anexe o comprovante do pagamento."; return; }
   }
   if(!pagViaAdmin && (!mm||!mm.senhaHash||!(await senhaOk(mm, f.senha.value)))){ $("#pgErro").textContent="Senha incorreta."; f.senha.value=""; f.senha.focus(); return; }
@@ -692,7 +754,7 @@ $("#fPag").onsubmit=async e=>{
       const up=await assets.upload(file);
       Object.assign(data,{comprovanteId:up.id, comprovanteUrl:up.url, comprovanteTipo:up.contentType||file.type, comprovanteNome:file.name});
     }
-    if(await salvar(()=>db.doc("pagamentos/"+S.mes+"_"+id).set(data), "Pagamento registrado")) close(f);
+    if(await salvar(()=>db.doc(path).set(data), "Pagamento registrado")) close(f);
   }catch(err){ toast("Erro ao enviar o comprovante: "+(err&&err.message||err)); }
   finally{ btn.disabled=false; btn.textContent="Confirmar pagamento"; }
 };
@@ -761,11 +823,21 @@ $("#fAdmSenha").onsubmit=async e=>{
   catch(x){ err.textContent="Não foi possível alterar a senha."; }
 };
 
+$("#fExtra").onsubmit=async e=>{
+  e.preventDefault(); if(!S.admin||!requireDb()) return;
+  const f=e.target, part=ativos().map(m=>m.id);
+  if(!part.length){ toast("Cadastre os membros antes."); return; }
+  const data={descricao:f.descricao.value.trim(), valorTotal:Number(f.valor.value)||0, data:f.data.value, participantes:part, criadoEm:new Date().toISOString()};
+  if(!data.descricao||!data.valorTotal) return;
+  if(await salvar(()=>db.doc("extras/"+novoId()).set(data),`Cobrança criada: ${brl(data.valorTotal)} ÷ ${part.length}`)){ f.reset(); f.data.value=hojeISO(); }
+};
+$("#fExtra").data.value=hojeISO();
+
 let recusarId=null;
 $("#fRecusa").onsubmit=async e=>{
   e.preventDefault(); if(!S.admin||!requireDb()||!recusarId) return;
   const motivo=e.target.motivo.value.trim(); if(!motivo) return;
-  const ref=db.doc("pagamentos/"+S.mes+"_"+recusarId);
+  const ref=db.doc(ctxPath(recusarId));
   if(await salvar(()=>ref.update({pago:false,recusado:true,motivoRecusa:motivo,recusadoEm:new Date().toISOString()}),"Pagamento recusado")) close(e.target);
 };
 
@@ -778,14 +850,16 @@ document.addEventListener("click",e=>{
     return;
   }
   const g=e.target.closest("[data-go]"); if(g){ e.preventDefault(); goTab(g.dataset.go); return; }
-  const t=e.target.closest("[data-pag],[data-pagadm],[data-recusar],[data-aprovar],[data-despagar],[data-edmembro],[data-delmembro],[data-edcons],[data-delcons]"); if(!t) return;
+  const t=e.target.closest("[data-delextra],[data-pag],[data-pagadm],[data-recusar],[data-aprovar],[data-despagar],[data-edmembro],[data-delmembro],[data-edcons],[data-delcons]"); if(!t) return;
   const d=t.dataset;
   const soAdmin = () => { if(!S.admin){ toast("Só o admin pode fazer isso."); goTab("admin"); return false; } return true; };
-  if(d.pag) abrirPag(d.pag,false);
+  if(d.pag!==undefined||d.pagadm!==undefined||d.recusar!==undefined||d.aprovar!==undefined||d.despagar!==undefined) pagX=d.x||null;
+  if(d.delextra){ if(!soAdmin()) return; const x=S.extras.find(e=>e.id===d.delextra); confirmar("Excluir cobrança",`Excluir a cobrança “${x.descricao}”? Ela deixa de aparecer para todos.`,()=>requireDb()&&salvar(()=>db.doc("extras/"+d.delextra).delete(),"Cobrança excluída")); }
+  else if(d.pag) abrirPag(d.pag,false);
   else if(d.pagadm){ if(soAdmin()) abrirPag(d.pagadm,true); }
   else if(d.recusar){ if(!soAdmin()) return; recusarId=d.recusar; const m=S.membros.find(x=>x.id===d.recusar); $("#rcTitle").textContent=`Recusar pagamento de ${m.nome.split(" ")[0]}`; $("#fRecusa").reset(); open("#ovRecusa"); }
-  else if(d.aprovar){ if(!soAdmin()||!requireDb()) return; const ref=db.doc("pagamentos/"+S.mes+"_"+d.aprovar); salvar(()=>ref.update({pago:true,recusado:false,motivoRecusa:null,aprovadoEm:new Date().toISOString()}),"Pagamento aprovado"); }
-  else if(d.despagar){ if(!soAdmin()) return; const m=S.membros.find(x=>x.id===d.despagar); confirmar("Excluir pagamento",`Excluir o pagamento de ${m.nome} em ${mesNome(S.mes)}? Ele volta a constar como não pago.`,()=>requireDb()&&salvar(()=>db.doc("pagamentos/"+S.mes+"_"+d.despagar).delete(),"Pagamento excluído")); }
+  else if(d.aprovar){ if(!soAdmin()||!requireDb()) return; const ref=db.doc(ctxPath(d.aprovar)); salvar(()=>ref.update({pago:true,recusado:false,motivoRecusa:null,aprovadoEm:new Date().toISOString()}),"Pagamento aprovado"); }
+  else if(d.despagar){ if(!soAdmin()) return; const m=S.membros.find(x=>x.id===d.despagar); const path=ctxPath(d.despagar); confirmar("Excluir pagamento",`Excluir o pagamento de ${m.nome} — ${ctxNome()}? Ele volta a constar como não pago.`,()=>requireDb()&&salvar(()=>db.doc(path).delete(),"Pagamento excluído")); }
   else if(d.edmembro){ if(soAdmin()) abrirMembro(d.edmembro); }
   else if(d.delmembro){ if(!soAdmin()) return; const m=S.membros.find(x=>x.id===d.delmembro); confirmar("Excluir membro",`Excluir ${m.nome}? Pagamentos e consultas já registrados continuam guardados. Para só tirar da divisão, edite e desmarque “Ativo”.`,()=>requireDb()&&salvar(()=>db.doc("membros/"+d.delmembro).delete(),"Membro excluído")); }
   else if(d.edcons){ if(soAdmin()) abrirConsulta(d.edcons); }
@@ -859,6 +933,8 @@ document.addEventListener("click",async e=>{
   const o2=once(); db.collection("membros").onSnapshot(s=>{ const vistos=new Set(); S.membros=s.docs.map(d=>({id:d.id,...d.data()})).filter(m=>m.nome).filter(m=>{ const c=soDigitos(m.cpf); if(!c) return true; if(vistos.has(c)) return false; vistos.add(c); return true; }); render(); o2(s); },fail);
   const o3=once(); db.collection("pagamentos").onSnapshot(s=>{ const o={}; s.docs.forEach(d=>o[d.id]=d.data()); S.pags=o; render(); o3(s); },fail);
   const o4=once(); db.collection("consultas").onSnapshot(s=>{ S.consultas=s.docs.map(d=>({id:d.id,...d.data()})); render(); o4(s); },fail);
+  db.collection("extras").onSnapshot(s=>{ S.extras=s.docs.map(d=>({id:d.id,...d.data()})); render(); },fail);
+  db.collection("pagextras").onSnapshot(s=>{ const o={}; s.docs.forEach(d=>o[d.id]=d.data()); S.pagx=o; render(); },fail);
   const o5=once(); db.collection("meses").onSnapshot(s=>{ const o={}; s.docs.forEach(d=>o[d.id]=d.data()); S.meses=o; render(); o5(s); },fail);
 })();
 })();
