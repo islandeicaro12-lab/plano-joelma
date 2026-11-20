@@ -709,8 +709,10 @@ function renderPagamentos(){
   }).join("") : `<div class="empty">Cadastre os membros na aba Membros para começar.</div>`;
 }
 
+// mostra só os 5 primeiros números do CPF; o resto vira # (ex.: 529.98#.###-##)
+function cpfParcial(cpf){ let n=0; return String(cpf||"").replace(/\d/g,d=>(++n<=5?d:"#")); }
 function membroRow(m,admin){
-  const det=[m.parentesco, m.cpf&&("CPF "+m.cpf), m.nascimento&&("nasc. "+fmtData(m.nascimento)), m.telefone, m.email, m.carteirinha&&("carteirinha "+m.carteirinha)].filter(Boolean).map(esc).join(" · ");
+  const det=[m.parentesco, m.cpf&&("CPF "+(admin?m.cpf:cpfParcial(m.cpf))), m.nascimento&&("nasc. "+fmtData(m.nascimento)), m.telefone, m.email, m.carteirinha&&("carteirinha "+m.carteirinha)].filter(Boolean).map(esc).join(" · ");
   const nCons=S.consultas.filter(c=>c.membroId===m.id).length;
   return `<div class="row">${avatar(m)}<div class="main"><b>${esc(m.nome)} ${m.ativo===false?'<span class="badge b-n">inativo</span>':""}</b><span>${det||"Sem dados adicionais"}</span>${m.obs?`<span style="display:block">${esc(m.obs)}</span>`:""}</div>
     <span class="badge b-n">${nCons} consulta${nCons===1?"":"s"}</span>
