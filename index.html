@@ -308,6 +308,7 @@ label.f input:focus,label.f select:focus,label.f textarea:focus{outline:2px soli
   <h3 id="pgTitle">Registrar pagamento</h3>
   <div id="pgPix"></div>
   <form id="fPag" class="fg">
+    <label class="f full" id="pgMesBox">📅 Mês de referência (qual mês está pagando)<select id="pgMes"></select></label>
     <label class="f full">Seu nome<select name="membro" id="pgMembro" required></select></label>
     <label class="f">Valor pago (R$)<input name="valor" type="number" step="0.01" min="0" required></label>
     <label class="f">Data do pagamento<input name="data" type="date" required></label>
@@ -693,11 +694,12 @@ $("#fMembro").onsubmit=async e=>{
 let pagMembro=null;
 let pagViaAdmin=false;
 let pagX=null; // id da cobrança extra (null = mensalidade)
+let pagMes=S.mes; // mês de referência da mensalidade
 const ctxExtra = () => pagX ? S.extras.find(e=>e.id===pagX) : null;
-const ctxPath = id => pagX ? "pagextras/"+pagX+"_"+id : "pagamentos/"+S.mes+"_"+id;
-const ctxPag = id => pagX ? pagExtra(pagX,id) : pagDe(S.mes,id);
-const ctxCota = () => { const x=ctxExtra(); return x ? cotaExtra(x) : cotaMes(S.mes); };
-const ctxNome = () => { const x=ctxExtra(); return x ? x.descricao : mesNome(S.mes); };
+const ctxPath = id => pagX ? "pagextras/"+pagX+"_"+id : "pagamentos/"+pagMes+"_"+id;
+const ctxPag = id => pagX ? pagExtra(pagX,id) : pagDe(pagMes,id);
+const ctxCota = () => { const x=ctxExtra(); return x ? cotaExtra(x) : cotaMes(pagMes); };
+const ctxNome = () => { const x=ctxExtra(); return x ? x.descricao : mesNome(pagMes); };
 const ctxMembros = () => { const x=ctxExtra(); return x ? participantesDe(x) : ativos(); };
 const ctxJa = () => pagX ? "O comprovante desta cobrança já foi enviado." : "O comprovante deste mês já foi enviado. Só é permitido um por mês.";
 function abrirPag(id,viaAdmin){
@@ -705,13 +707,24 @@ function abrirPag(id,viaAdmin){
   if(!ms.length){ toast("Nenhum membro cadastrado ainda."); return; }
   pagViaAdmin=!!(viaAdmin&&S.admin);
   const f=$("#fPag"); f.reset();
+  pagMes=S.mes;
+  const meses=[]; for(let i=-12;i<=3;i++) meses.push(addMes(mesKey(new Date()),i));
+  if(!meses.includes(pagMes)) meses.push(pagMes);
+  meses.sort().reverse();
+  $("#pgMes").innerHTML = meses.map(k=>`<option value="${k}"${k===pagMes?" selected":""}>${esc(mesNome(k).replace(/^./,c=>c.toUpperCase()))}</option>`).join("");
+  $("#pgMesBox").classList.toggle("hidden",!!pagX);
+  $("#pgMes").disabled = pagViaAdmin;
+  $("#pgMembro").disabled = pagViaAdmin;
+  listarMembrosPag(id||null);
+  preencherPag(id||null);
+  open("#ovPag");
+}
+function listarMembrosPag(id){
+  const ms=ctxMembros();
   $("#pgMembro").innerHTML = (id?"":`<option value="" disabled selected>Escolha seu nome…</option>`) +
     ms.map(m=>{ const p=ctxPag(m.id), ja=p&&p.pago&&p.comprovanteId;
       return `<option value="${esc(m.id)}"${m.id===id?" selected":""}>${esc(m.nome)}${ja?" — ✔ já enviado":""}</option>`; }).join("");
-  $("#pgMembro").disabled = pagViaAdmin;
   $("#pgPix").innerHTML = pixCard(ctxCota());
-  preencherPag(id||null);
-  open("#ovPag");
 }
 function preencherPag(id){
   const f=$("#fPag"); pagMembro=id;
@@ -731,12 +744,13 @@ function preencherPag(id){
   if(!m.senhaHash && !pagViaAdmin){ $("#pgErro").textContent="Este membro ainda não tem senha. Peça ao admin para criar uma (Admin → Membros → Editar)."; save.disabled=true; $("#pgSenhaBox").classList.add("hidden"); f.senha.required=false; }
 }
 $("#pgMembro").addEventListener("change",e=>preencherPag(e.target.value));
+$("#pgMes").addEventListener("change",e=>{ pagMes=e.target.value; const id=pagMembro; listarMembrosPag(id); preencherPag(id); });
 $("#btnEnviarComp").onclick=()=>{ pagX=null; abrirPag(null,false); };
 $("#fPag").onsubmit=async e=>{
   e.preventDefault(); if(!requireDb()) return;
   const f=e.target, btn=$("#pgSave"), id=pagMembro, ant=ctxPag(id)||{}, path=ctxPath(id);
   if(!id){ $("#pgErro").textContent="Escolha o seu nome."; return; }
-  const data={...(pagX?{extraId:pagX}:{mes:S.mes}), membroId:id, pago:true, valor:Number(f.valor.value)||0, data:f.data.value, obs:f.obs.value.trim(), registradoEm:new Date().toISOString(),
+  const data={...(pagX?{extraId:pagX}:{mes:pagMes}), membroId:id, pago:true, valor:Number(f.valor.value)||0, data:f.data.value, obs:f.obs.value.trim(), registradoEm:new Date().toISOString(),
     comprovanteId:ant.comprovanteId||null, comprovanteUrl:ant.comprovanteUrl||null, comprovanteTipo:ant.comprovanteTipo||null, comprovanteNome:ant.comprovanteNome||null};
   const file=f.arquivo.files[0];
   const mm=S.membros.find(x=>x.id===id);
@@ -754,7 +768,7 @@ $("#fPag").onsubmit=async e=>{
       const up=await assets.upload(file);
       Object.assign(data,{comprovanteId:up.id, comprovanteUrl:up.url, comprovanteTipo:up.contentType||file.type, comprovanteNome:file.name});
     }
-    if(await salvar(()=>db.doc(path).set(data), "Pagamento registrado")) close(f);
+    if(await salvar(()=>db.doc(path).set(data), pagX?"Pagamento registrado":"Pagamento de "+mesNome(pagMes)+" registrado")){ close(f); if(!pagX && S.mes!==pagMes){ S.mes=pagMes; render(); } }
   }catch(err){ toast("Erro ao enviar o comprovante: "+(err&&err.message||err)); }
   finally{ btn.disabled=false; btn.textContent="Confirmar pagamento"; }
 };
@@ -853,7 +867,7 @@ document.addEventListener("click",e=>{
   const t=e.target.closest("[data-delextra],[data-pag],[data-pagadm],[data-recusar],[data-aprovar],[data-despagar],[data-edmembro],[data-delmembro],[data-edcons],[data-delcons]"); if(!t) return;
   const d=t.dataset;
   const soAdmin = () => { if(!S.admin){ toast("Só o admin pode fazer isso."); goTab("admin"); return false; } return true; };
-  if(d.pag!==undefined||d.pagadm!==undefined||d.recusar!==undefined||d.aprovar!==undefined||d.despagar!==undefined) pagX=d.x||null;
+  if(d.pag!==undefined||d.pagadm!==undefined||d.recusar!==undefined||d.aprovar!==undefined||d.despagar!==undefined) pagX=d.x||null; pagMes=S.mes;
   if(d.delextra){ if(!soAdmin()) return; const x=S.extras.find(e=>e.id===d.delextra); confirmar("Excluir cobrança",`Excluir a cobrança “${x.descricao}”? Ela deixa de aparecer para todos.`,()=>requireDb()&&salvar(()=>db.doc("extras/"+d.delextra).delete(),"Cobrança excluída")); }
   else if(d.pag) abrirPag(d.pag,false);
   else if(d.pagadm){ if(soAdmin()) abrirPag(d.pagadm,true); }
