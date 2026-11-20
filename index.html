@@ -58,7 +58,8 @@ nav.tabs button.on{color:var(--teal);border-color:var(--teal)}
 .sec-h h2{font-size:19px}
 .people{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .person{border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
-.av{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:14px;background:var(--teal-2);color:var(--teal);flex:none}
+.av img{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block}
+.av{overflow:hidden;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:14px;background:var(--teal-2);color:var(--teal);flex:none}
 .badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:99px}
 .b-ok{background:var(--ok-bg);color:var(--ok)} .b-warn{background:var(--warn-bg);color:var(--warn)} .b-bad{background:var(--bad-bg);color:var(--bad)} .b-n{background:#eef0ef;color:var(--muted)}
 .list{display:flex;flex-direction:column}
@@ -113,6 +114,7 @@ label.f input:focus,label.f select:focus,label.f textarea:focus{outline:2px soli
 .sync.on{background:var(--ok-bg);color:var(--ok)} .sync.on i{background:var(--ok)}
 .sync.off{background:var(--bad-bg);color:var(--bad)} .sync.off i{background:var(--bad)}
 .b-info{background:#e7eefb;color:#2f5fb3}
+.b-prox{background:#fde6d2;color:#c25a10}
 </style>
 </head>
 <body>
@@ -244,9 +246,9 @@ label.f input:focus,label.f select:focus,label.f textarea:focus{outline:2px soli
             <label class="f">Valor mensal total (R$)<input name="valorMensal" type="number" step="0.01" min="0" required></label>
             <label class="f">Dia de vencimento<input name="diaVenc" type="number" min="1" max="31" required></label>
             <label class="f full">A mensalidade de cada mês vence…<select name="vencQuando"><option value="mesmo">no mesmo mês (ex.: novembro vence em 15/11)</option><option value="seguinte">no mês seguinte (ex.: novembro vence em 15/12)</option></select></label>
-            <label class="f">Mostrar "Aguardando pagamento" a partir de quantos dias antes<input name="diasAguardando" type="number" min="0" max="60" value="10"></label>
-            <label class="f">Mostrar "Em atraso" a partir de quantos dias antes<input name="diasAtraso" type="number" min="0" max="30" value="3"></label>
-            <div class="full" style="color:var(--muted);font-size:13px;margin-top:-6px">Use 0 em "Em atraso" para marcar atraso só depois que o vencimento passar.</div>
+            <label class="f">Mostrar "Pendente" quando faltarem até (dias)<input name="diasAguardando" type="number" min="0" max="60" value="10"></label>
+            <label class="f">Mostrar "Próximo do vencimento" quando faltarem até (dias)<input name="diasProximo" type="number" min="0" max="30" value="3"></label>
+            <div class="full" style="color:var(--muted);font-size:13px;margin-top:-6px">Antes disso aparece "Em dia". Depois que a data de vencimento passa, aparece "Em atraso".</div>
             <label class="f">Nº do contrato<input name="contrato"></label>
             <label class="f">📅 Data de início do plano<input name="dataInicio" type="date"></label>
             <div class="full" style="border-top:1px solid var(--line);padding-top:12px;font-weight:600;color:var(--ink)">💠 PIX para pagamento</div>
@@ -300,6 +302,13 @@ label.f input:focus,label.f select:focus,label.f textarea:focus{outline:2px soli
 <div class="ov" id="ovMembro"><div class="modal">
   <h3 id="mTitle">Novo membro</h3>
   <form id="fMembro" class="fg">
+    <div class="full hidden" id="mFotoBox" style="display:flex;align-items:center;gap:14px">
+      <div class="av" id="mFotoPrev" style="width:72px;height:72px;font-size:22px"></div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label class="btn sm" style="cursor:pointer;display:inline-block">📷 Adicionar / trocar foto<input type="file" id="mFoto" accept="image/*" style="display:none"></label>
+        <button type="button" class="btn sm dang" id="mFotoDel">Remover foto</button>
+      </div>
+    </div>
     <label class="f full">Nome completo<input name="nome" required></label>
     <label class="f">CPF (obrigatório)<input name="cpf" inputmode="numeric" placeholder="000.000.000-00" required></label>
     <label class="f">Data de nascimento<input name="nascimento" type="date"></label>
@@ -420,9 +429,10 @@ function situacao(k,id){
   const p=pagDe(k,id);
   if(p && p.pago) return {cls:"b-ok", txt:"Pago"};
   if(p && p.recusado) return {cls:"b-bad", txt:"Recusado"};
-  const d=diasPara(k), at=Number(S.config.diasAtraso??3), ag=Number(S.config.diasAguardando??10);
-  if(d<0 || (at>0 && d<=at)) return {cls:"b-bad", txt:"Em atraso"};
-  if(d<=ag) return {cls:"b-warn", txt:"Aguardando pagamento"};
+  const d=diasPara(k), px=Number(S.config.diasProximo??3), pe=Number(S.config.diasAguardando??10);
+  if(d<0) return {cls:"b-bad", txt:"Em atraso"};
+  if(d<=px) return {cls:"b-prox", txt:"Próximo do vencimento"};
+  if(d<=pe) return {cls:"b-warn", txt:"Pendente"};
   return {cls:"b-info", txt:"Em dia"};
 }
 function resumo(k){
@@ -436,6 +446,8 @@ function resumo(k){
 /* mês mostrado por padrão: o que tem o próximo vencimento (de hoje em diante) */
 function mesPadrao(){
   const hoje=mesKey(new Date()), ant=addMes(hoje,-1);
+  // se um mês já vencido teve pagamentos registrados mas ainda falta alguém, continua mostrando ele (em atraso)
+  for(const k of [addMes(hoje,-2),ant,hoje]){ if(diasPara(k)<0){ const r=resumo(k); if(r.nPago>0 && r.nPago<r.n) return k; } }
   for(const k of [ant,hoje,addMes(hoje,1)]) if(diasPara(k)>=0) return k;
   return hoje;
 }
@@ -465,7 +477,7 @@ function renderPainel(){
   const at=ativos();
   $("#dPeople").innerHTML = at.length ? at.map(m=>{
     const s=situacao(S.mes,m.id), p=pagDe(S.mes,m.id);
-    return `<div class="person"><div style="display:flex;gap:8px;align-items:center"><div class="av">${esc(iniciais(m.nome))}</div><b style="font-size:14px">${esc(m.nome.split(" ")[0])}</b></div>
+    return `<div class="person"><div style="display:flex;gap:8px;align-items:center">${avatar(m)}<b style="font-size:14px">${esc(m.nome.split(" ")[0])}</b></div>
       <span class="badge ${s.cls}">${s.txt}</span>
       <span style="font-size:12px;color:var(--muted)">${p&&p.pago?("em "+fmtData(p.data)+(p.comprovanteId?" · 📎":"")):(p&&p.recusado?"reenviar comprovante":brl(cota)+" · vence "+fmtData(isoData(vencData(S.mes))).slice(0,5))}</span></div>`;
   }).join("") : `<div class="empty">Nenhum membro ainda. <a href="#" data-go="membros" class="filelink">Adicionar membros</a></div>`;
@@ -492,6 +504,17 @@ function comprovanteHtml(p){
   return `<a href="#" data-comp="${esc(id)}" title="Ver comprovante" style="display:flex;align-items:center;gap:6px;text-decoration:none">${img&&url?`<img class="thumb" src="${esc(url)}" alt="Comprovante">`:`<span style="font-size:26px">${img?"🖼️":"📄"}</span>`}<span class="filelink">${url===null?"Comprovante indisponível":"Ver comprovante"}</span></a>`;
 }
 let hSel=null;
+/* foto de perfil */
+const avatar = m => `<div class="av">${m&&m.foto?`<img src="${esc(m.foto)}" alt="">`:esc(iniciais(m&&m.nome))}</div>`;
+async function fotoPerfil(file){
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((ok,err)=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=err; i.src=url; });
+    const lado=Math.min(img.width,img.height), c=document.createElement("canvas"); c.width=c.height=256;
+    c.getContext("2d").drawImage(img,(img.width-lado)/2,(img.height-lado)/2,lado,lado,0,0,256,256);
+    return c.toDataURL("image/jpeg",0.82);
+  } finally { URL.revokeObjectURL(url); }
+}
 /* opções de mês (últimos 24 e próximos 6) */
 function opcoesMes(sel){
   const ms=[]; for(let i=-24;i<=6;i++) ms.push(addMes(mesKey(new Date()),i));
@@ -515,7 +538,7 @@ function extraRows(x,admin){
     if(admin) acts=`<button class="btn sm" data-pagadm="${esc(m.id)}" ${xa}>${p&&p.pago?"Editar":"Registrar"}</button>${p&&p.pago?`<button class="btn sm dang" data-recusar="${esc(m.id)}" ${xa}>Recusar</button>`:""}${p&&p.recusado?`<button class="btn sm" data-aprovar="${esc(m.id)}" ${xa}>Aprovar</button>`:""}${p?`<button class="btn sm dang" data-despagar="${esc(m.id)}" ${xa}>Excluir</button>`:""}`;
     else acts = p&&p.pago ? (p.comprovanteId?`<span style="font-size:12px;color:var(--ok);font-weight:600">✔ Enviado</span>`:`<button class="btn sm" data-pag="${esc(m.id)}" ${xa}>Enviar comprovante</button>`)
       : `<button class="btn sm pri" data-pag="${esc(m.id)}" ${xa}>${p&&p.recusado?"Reenviar pagamento":"Enviar comprovante"}</button>`;
-    return `<div class="row"><div class="av">${esc(iniciais(m.nome))}</div><div class="main"><b>${esc(m.nome)}</b><span>${info}</span></div>${comprovanteHtml(p)}<span class="badge ${s.cls}">${s.txt}</span><div class="actions">${acts}</div></div>`;
+    return `<div class="row">${avatar(m)}<div class="main"><b>${esc(m.nome)}</b><span>${info}</span></div>${comprovanteHtml(p)}<span class="badge ${s.cls}">${s.txt}</span><div class="actions">${acts}</div></div>`;
   }).join("");
 }
 function extraCard(x,admin){
@@ -580,7 +603,7 @@ function renderPagamentos(){
       ? (p.comprovanteId ? `<span style="font-size:12px;color:var(--ok);font-weight:600">✔ Enviado</span>` : `<button class="btn sm" data-pag="${esc(m.id)}">Enviar comprovante</button>`)
       : p&&p.recusado ? `<button class="btn sm pri" data-pag="${esc(m.id)}">Reenviar pagamento</button>`
       : `<button class="btn sm pri" data-pag="${esc(m.id)}">Registrar pagamento</button>`;
-    return `<div class="row"><div class="av">${esc(iniciais(m.nome))}</div><div class="main"><b>${esc(m.nome)}</b><span>${info}</span></div>
+    return `<div class="row">${avatar(m)}<div class="main"><b>${esc(m.nome)}</b><span>${info}</span></div>
       ${comprovanteHtml(p)}<span class="badge ${s.cls}">${s.txt}</span><div class="actions">${acts}</div></div>`;
   }).join("") : `<div class="empty">Cadastre os membros na aba Membros para começar.</div>`;
 }
@@ -588,7 +611,7 @@ function renderPagamentos(){
 function membroRow(m,admin){
   const det=[m.parentesco, m.cpf&&("CPF "+m.cpf), m.nascimento&&("nasc. "+fmtData(m.nascimento)), m.telefone, m.email, m.carteirinha&&("carteirinha "+m.carteirinha)].filter(Boolean).map(esc).join(" · ");
   const nCons=S.consultas.filter(c=>c.membroId===m.id).length;
-  return `<div class="row"><div class="av">${esc(iniciais(m.nome))}</div><div class="main"><b>${esc(m.nome)} ${m.ativo===false?'<span class="badge b-n">inativo</span>':""}</b><span>${det||"Sem dados adicionais"}</span>${m.obs?`<span style="display:block">${esc(m.obs)}</span>`:""}</div>
+  return `<div class="row">${avatar(m)}<div class="main"><b>${esc(m.nome)} ${m.ativo===false?'<span class="badge b-n">inativo</span>':""}</b><span>${det||"Sem dados adicionais"}</span>${m.obs?`<span style="display:block">${esc(m.obs)}</span>`:""}</div>
     <span class="badge b-n">${nCons} consulta${nCons===1?"":"s"}</span>
     ${admin?`<div class="actions"><button class="btn sm" data-edmembro="${esc(m.id)}">Editar</button><button class="btn sm dang" data-delmembro="${esc(m.id)}">Excluir</button></div>`:""}</div>`;
 }
@@ -624,7 +647,7 @@ function renderAdmin(){
     const s=situacao(S.mes,m.id), p=pagDe(S.mes,m.id);
     const info = p&&p.pago ? `${brl(p.valor)} em ${fmtData(p.data)}${p.obs?" · "+esc(p.obs):""}`
       : p&&p.recusado ? `<span style="color:var(--bad)">Recusado em ${fmtData((p.recusadoEm||"").slice(0,10))}: ${esc(p.motivoRecusa||"sem motivo")}</span>` : "Sem pagamento registrado";
-    return `<div class="row"><div class="av">${esc(iniciais(m.nome))}</div><div class="main"><b>${esc(m.nome)}</b><span>${info}</span></div>${comprovanteHtml(p)}<span class="badge ${s.cls}">${s.txt}</span>
+    return `<div class="row">${avatar(m)}<div class="main"><b>${esc(m.nome)}</b><span>${info}</span></div>${comprovanteHtml(p)}<span class="badge ${s.cls}">${s.txt}</span>
       <div class="actions"><button class="btn sm" data-pagadm="${esc(m.id)}">${p&&p.pago?"Editar":"Registrar"}</button>${p&&p.pago?`<button class="btn sm dang" data-recusar="${esc(m.id)}">Recusar</button>`:""}${p&&p.recusado?`<button class="btn sm" data-aprovar="${esc(m.id)}">Aprovar</button>`:""}${p?`<button class="btn sm dang" data-despagar="${esc(m.id)}">Excluir</button>`:""}</div></div>`;
   }).join("") : `<div class="empty">Nenhum membro ativo.</div>`;
   const cs=[...S.consultas].sort((a,b)=>(b.data+(b.hora||"")).localeCompare(a.data+(a.hora||"")));
@@ -706,17 +729,26 @@ function abrirMembro(id){
   const travado = !!(m && cpfValido(m.cpf));
   f.cpf.readOnly = travado; f.cpf.style.background = travado ? "#f3f2ee" : "";
   f.cpf.title = travado ? "O CPF identifica o membro e não pode ser alterado" : "";
+  fotoNova=undefined; $("#mFoto").value="";
+  $("#mFotoBox").classList.toggle("hidden",!S.admin);
+  pintarFotoPrev(m?m.foto:null, f.nome.value);
   $("#mErro").textContent="";
   $("#mSenhaHint").textContent = m&&m.senhaHash ? "— deixe em branco para manter a atual" : "— será pedida para registrar pagamentos e enviar comprovantes (mín. 4 caracteres)";
   f.senha.required = !(m&&m.senhaHash);
   open("#ovMembro"); setTimeout(()=>f.nome.focus(),50);
 }
+let fotoNova; // undefined = manter, null = remover, string = nova
+function pintarFotoPrev(foto,nome){ const p=$("#mFotoPrev"); p.innerHTML = foto?`<img src="${esc(foto)}" alt="">`:esc(iniciais(nome||"?")); $("#mFotoDel").disabled=!foto; }
+$("#mFoto").addEventListener("change",async e=>{ const file=e.target.files[0]; if(!file) return;
+  try{ fotoNova=await fotoPerfil(file); pintarFotoPrev(fotoNova,$("#fMembro").nome.value); }catch(x){ toast("Não foi possível ler a imagem."); } });
+$("#mFotoDel").onclick=()=>{ fotoNova=null; $("#mFoto").value=""; pintarFotoPrev(null,$("#fMembro").nome.value); };
 $("#btnAddMembro").onclick=()=>abrirMembro();
 $("#fMembro").onsubmit=async e=>{
   e.preventDefault(); if(!requireDb()) return;
   const f=e.target, ant=editMembro?S.membros.find(x=>x.id===editMembro)||{}:{};
   const data={nome:f.nome.value.trim()}; ["cpf","nascimento","telefone","email","parentesco","carteirinha","obs"].forEach(k=>data[k]=f[k].value.trim());
   data.ativo=f.ativo.checked; data.atualizadoEm=new Date().toISOString();
+  data.foto = (S.admin && fotoNova!==undefined) ? fotoNova : (ant.foto||null);
   if(!data.nome) return;
   // CPF obrigatório, válido e único
   const dig=soDigitos(data.cpf);
@@ -858,11 +890,11 @@ $("#fConsulta").onsubmit=async e=>{
 };
 
 /* config */
-function fillConfig(){ const f=$("#fConfig"), c=S.config; f.operadora.value=c.operadora||""; f.valorMensal.value=c.valorMensal??""; f.diaVenc.value=c.diaVenc??10; f.vencQuando.value=c.vencQuando||"mesmo"; f.diasAguardando.value=c.diasAguardando??10; f.diasAtraso.value=c.diasAtraso??3; f.contrato.value=c.contrato||""; f.dataInicio.value=c.dataInicio||""; f.pix.value=c.pix||""; f.pixTipo.value=c.pixTipo||"CPF"; f.pixNome.value=c.pixNome||""; f.pixBanco.value=c.pixBanco||""; }
+function fillConfig(){ const f=$("#fConfig"), c=S.config; f.operadora.value=c.operadora||""; f.valorMensal.value=c.valorMensal??""; f.diaVenc.value=c.diaVenc??10; f.vencQuando.value=c.vencQuando||"mesmo"; f.diasAguardando.value=c.diasAguardando??10; f.diasProximo.value=c.diasProximo??3; f.contrato.value=c.contrato||""; f.dataInicio.value=c.dataInicio||""; f.pix.value=c.pix||""; f.pixTipo.value=c.pixTipo||"CPF"; f.pixNome.value=c.pixNome||""; f.pixBanco.value=c.pixBanco||""; }
 $("#fConfig").onsubmit=async e=>{
   e.preventDefault(); if(!S.admin||!requireDb()) return;
   const f=e.target;
-  await salvar(()=>db.doc("config/plano").set({operadora:f.operadora.value.trim(), valorMensal:Number(f.valorMensal.value)||0, diaVenc:Number(f.diaVenc.value)||10, vencQuando:f.vencQuando.value, diasAguardando:Math.max(0,Number(f.diasAguardando.value)||0), diasAtraso:Math.max(0,Number(f.diasAtraso.value)||0), contrato:f.contrato.value.trim(), dataInicio:f.dataInicio.value, pix:f.pix.value.trim(), pixTipo:f.pixTipo.value, pixNome:f.pixNome.value.trim(), pixBanco:f.pixBanco.value.trim()}),"Configurações salvas");
+  await salvar(()=>db.doc("config/plano").set({operadora:f.operadora.value.trim(), valorMensal:Number(f.valorMensal.value)||0, diaVenc:Number(f.diaVenc.value)||10, vencQuando:f.vencQuando.value, diasAguardando:Math.max(0,Number(f.diasAguardando.value)||0), diasProximo:Math.max(0,Number(f.diasProximo.value)||0), contrato:f.contrato.value.trim(), dataInicio:f.dataInicio.value, pix:f.pix.value.trim(), pixTipo:f.pixTipo.value, pixNome:f.pixNome.value.trim(), pixBanco:f.pixBanco.value.trim()}),"Configurações salvas");
 };
 
 /* admin */
