@@ -235,7 +235,8 @@ label.f input:focus,label.f select:focus,label.f textarea:focus{outline:2px soli
             <label class="f full">Operadora / nome do plano<input name="operadora" placeholder="Ex.: Unimed, Bradesco Saúde…"></label>
             <label class="f">Valor mensal total (R$)<input name="valorMensal" type="number" step="0.01" min="0" required></label>
             <label class="f">Dia de vencimento<input name="diaVenc" type="number" min="1" max="31" required></label>
-            <label class="f full">Nº do contrato<input name="contrato"></label>
+            <label class="f">Nº do contrato<input name="contrato"></label>
+            <label class="f">📅 Data de início do plano<input name="dataInicio" type="date"></label>
             <div class="full" style="border-top:1px solid var(--line);padding-top:12px;font-weight:600;color:var(--ink)">💠 PIX para pagamento</div>
             <label class="f">Tipo de chave<select name="pixTipo"><option value="CPF">CPF</option><option value="CNPJ">CNPJ</option><option value="Celular">Celular</option><option value="E-mail">E-mail</option><option value="Aleatória">Chave aleatória</option></select></label>
             <label class="f">Chave PIX<input name="pix" placeholder="A chave para onde enviar"></label>
@@ -261,7 +262,7 @@ label.f input:focus,label.f select:focus,label.f textarea:focus{outline:2px soli
         <div class="list" id="aMembros"></div>
       </div>
       <div class="card" style="margin-top:14px">
-        <div class="sec-h"><h2>Pagamentos de <span id="aMes"></span></h2><span style="color:var(--muted);font-size:13px">use ‹ › no topo para trocar o mês</span></div>
+        <div class="sec-h"><h2>Pagamentos <span id="aMes" class="hidden"></span></h2><label class="f" style="flex-direction:row;align-items:center;gap:8px">📅 Mês <select id="aMesSel" style="min-width:190px"></select></label></div>
         <div class="list" id="aPags"></div>
       </div>
       <div class="card" style="margin-top:14px">
@@ -338,8 +339,9 @@ label.f input:focus,label.f select:focus,label.f textarea:focus{outline:2px soli
 </div></div>
 
 <div class="ov" id="ovValor"><div class="modal">
-  <h3>Valor do plano em <span id="vMes"></span></h3>
+  <h3>Valor de um mês específico</h3>
   <form id="fValor" class="fg">
+    <label class="f full">📅 Mês<select name="mes" id="vMesSel"></select></label>
     <label class="f full">Valor total deste mês (R$)<input name="valor" type="number" step="0.01" min="0" required></label>
     <div class="full" style="color:var(--muted);font-size:13px">Deixe igual ao valor padrão para usar o das Configurações.</div>
     <div class="mfoot full"><button type="button" class="btn" data-close>Cancelar</button><button class="btn pri" type="submit">Salvar</button></div>
@@ -406,7 +408,7 @@ function resumo(k){
 /* ---------- render ---------- */
 function render(){
   $("#mLabel").textContent = mesNome(S.mes);
-  $("#sub").textContent = S.config.operadora ? `${S.config.operadora} · vence dia ${S.config.diaVenc||"—"}` : "Acompanhamento de pagamentos e consultas";
+  $("#sub").textContent = S.config.operadora ? `${S.config.operadora} · vence dia ${S.config.diaVenc||"—"}${S.config.dataInicio?" · desde "+fmtData(S.config.dataInicio):""}` : "Acompanhamento de pagamentos e consultas";
   renderPainel(); renderPagamentos(); renderExtras(); renderHistorico(); renderMembros(); renderConsultas(); renderAdmin();
 }
 
@@ -453,6 +455,13 @@ function comprovanteHtml(p){
   return `<a href="#" data-comp="${esc(id)}" title="Ver comprovante" style="display:flex;align-items:center;gap:6px;text-decoration:none">${img&&url?`<img class="thumb" src="${esc(url)}" alt="Comprovante">`:`<span style="font-size:26px">${img?"🖼️":"📄"}</span>`}<span class="filelink">${url===null?"Comprovante indisponível":"Ver comprovante"}</span></a>`;
 }
 let hSel=null;
+/* opções de mês (últimos 24 e próximos 6) */
+function opcoesMes(sel){
+  const ms=[]; for(let i=-24;i<=6;i++) ms.push(addMes(mesKey(new Date()),i));
+  if(sel && !ms.includes(sel)) ms.push(sel);
+  ms.sort().reverse();
+  return ms.map(k=>`<option value="${k}"${k===sel?" selected":""}>${esc(mesNome(k).replace(/^./,c=>c.toUpperCase()))}</option>`).join("");
+}
 /* cobranças extras */
 const participantesDe = x => membrosOrd().filter(m=>(x.participantes||[]).includes(m.id));
 const cotaExtra = x => Math.round((Number(x.valorTotal)||0)/Math.max(1,(x.participantes||[]).length)*100)/100;
@@ -570,7 +579,7 @@ function renderAdmin(){
   $("#admSenha2Box").classList.toggle("hidden",!semSenha);
   $("#admBtn").textContent = semSenha ? "Criar senha e entrar" : "Entrar";
   if(!S.admin) return;
-  $("#aMes").textContent=mesNome(S.mes);
+  $("#aMes").textContent=mesNome(S.mes); $("#aMesSel").innerHTML=opcoesMes(S.mes);
   const ms=membrosOrd();
   $("#aMembros").innerHTML = ms.length ? ms.map(m=>membroRow(m,true)).join("") : `<div class="empty">Nenhum membro.</div>`;
   const at=ativos();
@@ -773,12 +782,15 @@ $("#fPag").onsubmit=async e=>{
   finally{ btn.disabled=false; btn.textContent="Confirmar pagamento"; }
 };
 
-$("#btnValorMes").onclick=()=>{ $("#vMes").textContent=mesNome(S.mes); $("#fValor").valor.value=valorMes(S.mes).toFixed(2); open("#ovValor"); };
+$("#aMesSel").addEventListener("change",e=>{ S.mes=e.target.value; render(); });
+$("#btnValorMes").onclick=()=>{ $("#vMesSel").innerHTML=opcoesMes(S.mes); $("#fValor").valor.value=valorMes(S.mes).toFixed(2); open("#ovValor"); };
+$("#vMesSel").addEventListener("change",e=>{ $("#fValor").valor.value=valorMes(e.target.value).toFixed(2); });
 $("#fValor").onsubmit=async e=>{
   e.preventDefault(); if(!S.admin||!requireDb()) return;
   const v=Number(e.target.valor.value)||0;
-  const ref=db.doc("meses/"+S.mes);
-  const ok = v===Number(S.config.valorMensal||0) && S.meses[S.mes] ? await salvar(()=>ref.delete(),"Valor padrão restaurado")
+  const mk=e.target.mes.value||S.mes;
+  const ref=db.doc("meses/"+mk);
+  const ok = v===Number(S.config.valorMensal||0) && S.meses[mk] ? await salvar(()=>ref.delete(),"Valor padrão restaurado")
     : await salvar(()=>ref.set({valor:v}),"Valor do mês atualizado");
   if(ok) close(e.target);
 };
@@ -805,11 +817,11 @@ $("#fConsulta").onsubmit=async e=>{
 };
 
 /* config */
-function fillConfig(){ const f=$("#fConfig"), c=S.config; f.operadora.value=c.operadora||""; f.valorMensal.value=c.valorMensal??""; f.diaVenc.value=c.diaVenc??10; f.contrato.value=c.contrato||""; f.pix.value=c.pix||""; f.pixTipo.value=c.pixTipo||"CPF"; f.pixNome.value=c.pixNome||""; f.pixBanco.value=c.pixBanco||""; }
+function fillConfig(){ const f=$("#fConfig"), c=S.config; f.operadora.value=c.operadora||""; f.valorMensal.value=c.valorMensal??""; f.diaVenc.value=c.diaVenc??10; f.contrato.value=c.contrato||""; f.dataInicio.value=c.dataInicio||""; f.pix.value=c.pix||""; f.pixTipo.value=c.pixTipo||"CPF"; f.pixNome.value=c.pixNome||""; f.pixBanco.value=c.pixBanco||""; }
 $("#fConfig").onsubmit=async e=>{
   e.preventDefault(); if(!S.admin||!requireDb()) return;
   const f=e.target;
-  await salvar(()=>db.doc("config/plano").set({operadora:f.operadora.value.trim(), valorMensal:Number(f.valorMensal.value)||0, diaVenc:Number(f.diaVenc.value)||10, contrato:f.contrato.value.trim(), pix:f.pix.value.trim(), pixTipo:f.pixTipo.value, pixNome:f.pixNome.value.trim(), pixBanco:f.pixBanco.value.trim()}),"Configurações salvas");
+  await salvar(()=>db.doc("config/plano").set({operadora:f.operadora.value.trim(), valorMensal:Number(f.valorMensal.value)||0, diaVenc:Number(f.diaVenc.value)||10, contrato:f.contrato.value.trim(), dataInicio:f.dataInicio.value, pix:f.pix.value.trim(), pixTipo:f.pixTipo.value, pixNome:f.pixNome.value.trim(), pixBanco:f.pixBanco.value.trim()}),"Configurações salvas");
 };
 
 /* admin */
