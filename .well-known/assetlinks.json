@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "br.social.global.plano.twa",
+        "sha256_cert_fingerprints": ["E6:B4:A0:FE:E1:92:39:1C:6B:EB:43:DB:91:F9:FE:88:F3:C4:40:59:6B:1D:00:83:DA:CE:07:FD:60:D8:DD:87"]
+      }
+    }]
