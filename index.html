@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Plano de Saúde de Joelma</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#13263F">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Plano Joelma">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -1198,6 +1204,9 @@ document.addEventListener("click",async e=>{
   const o5=once(); db.collection("meses").onSnapshot(s=>{ marcarSync(s.metadata); const o={}; s.docs.forEach(d=>o[d.id]=d.data()); S.meses=o; render(); o5(s); },fail);
 })();
 })();
+</script>
+<script>
+if("serviceWorker" in navigator){ window.addEventListener("load",()=>{ navigator.serviceWorker.register("sw.js").catch(()=>{}); }); }
 </script>
 </body>
 </html>
